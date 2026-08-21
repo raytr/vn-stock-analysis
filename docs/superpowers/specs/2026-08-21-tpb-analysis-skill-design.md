@@ -31,6 +31,14 @@ Loại bỏ dứt khoát, không làm:
 - Không backtest, không tối ưu tham số.
 - Không phân tích mã ngoài thị trường Việt Nam.
 - Không giữ lại bất kỳ logic nào của hệ thống cũ.
+- **Không tư vấn dùng margin hay đòn bẩy.** Đây là chỗ nhà đầu tư cá nhân Việt Nam chịu
+  thiệt hại nặng nhất. Một hệ thống tự động không nắm được sức chịu đựng tài chính của
+  người dùng thì không có tư cách khuyến nghị vay để mua.
+- **Không phân tích phái sinh (VN30F) hay chứng quyền (CW).** Khác hẳn về cơ chế đòn bẩy,
+  thời gian đáo hạn và rủi ro. Trộn vào sẽ làm loãng khung phân tích cổ phiếu cơ sở.
+- **Không tự đặt giá mục tiêu bằng con số của riêng mình.** Chỉ trích dẫn giá mục tiêu của
+  công ty chứng khoán kèm nguồn. Một mô hình ngôn ngữ đưa ra "giá mục tiêu 19.000đ" tạo
+  cảm giác chính xác giả, trong khi nó không có mô hình định giá nào đứng sau.
 
 ## 3. Bài học từ hệ thống cũ
 
@@ -69,7 +77,8 @@ Nguyên tắc xuyên suốt:
         ├── test_units.py          chuẩn hoá đơn vị giá
         ├── test_sheet_row.py      dựng dòng gửi sheet
         ├── test_degradation.py    thiếu webhook thì không crash
-        └── test_no_fabrication.py nguồn rỗng thì null, không bịa
+        ├── test_no_fabrication.py nguồn rỗng thì null, không bịa
+        └── test_corp_actions.py   lọc biến động vượt ±7%
 apps-script/Code.gs             người dùng dán vào Apps Script
 data/journal/TPB.jsonl          bộ nhớ chính, mỗi dòng một lần chạy
 reports/YYYY-MM-DD.md           báo cáo đầy đủ, commit vào git
@@ -118,10 +127,42 @@ Entrade trả `14.5`, Yahoo trả `14500`, cùng là 14.500 đồng. Đây đún
 một lần, ngay tại lớp đọc dữ liệu, không nơi nào khác. `test_units.py` khẳng định
 `round(entrade_close * 1000) == yahoo_close`.
 
-### 5.2 Đối chiếu chéo
+### 5.2 Đối chiếu chéo — chỉ áp cho giá đóng cửa gần nhất
 
 Có hai nguồn giá độc lập thì phải dùng để kiểm tra lẫn nhau. Lệch quá **2%** thì ghi cảnh báo
 vào JSON và **hạ độ tin cậy xuống `Thấp`**. Không âm thầm tin một bên.
+
+**Phạm vi bị giới hạn có chủ đích: chỉ đối chiếu giá đóng cửa của phiên gần nhất.** Đo thực tế
+ngày 2026-08-21 trên 343 phiên chung của TPB:
+
+| So sánh | Lệch trung bình | Lệch tối đa | Số phiên vượt 2% |
+|---|---|---|---|
+| Entrade vs Yahoo đã điều chỉnh | 0,53% | 7,82% | 32/343 |
+| Entrade vs Yahoo thô | 0,94% | 7,82% | 54/343 |
+| 5 phiên gần nhất | 0,00% | 0,00% | 0/5 |
+
+Giá hiện tại hai nguồn khớp tuyệt đối, nhưng chuỗi lịch sử lệch tới 7,82% tại các mốc sự kiện
+quyền. Nếu đối chiếu toàn chuỗi thì hệ sẽ báo động giả liên tục.
+
+### 5.3 Sự kiện quyền và tính toàn vẹn chuỗi giá
+
+TPB chia cổ tức bằng cổ phiếu rất thường xuyên — **10 sự kiện quyền từ 2018**, gần nhất
+30/10/2025 tỷ lệ 1,05; và 13/05/2025 trả tiền mặt 952đ. Ngày giao dịch không hưởng quyền, giá
+bị điều chỉnh giảm theo kỹ thuật, **không phải do bán tháo**. Đọc nhầm chỗ này là đọc ngược
+hoàn toàn.
+
+Ba quy tắc bắt buộc:
+
+1. **Chỉ báo kỹ thuật tính từ một nguồn duy nhất.** RSI, MACD, SMA đều tính trên chuỗi
+   Entrade. **Tuyệt đối không trộn chuỗi của hai nguồn** — hai nhà cung cấp điều chỉnh sự
+   kiện quyền ở thời điểm khác nhau, chuỗi lai sẽ tạo ra biến động không có thật.
+2. **Bộ lọc biên độ ±7%.** HOSE giới hạn biến động một phiên ở ±7%. Bất kỳ thay đổi
+   đóng-cửa-sang-đóng-cửa nào **vượt ngưỡng này là sự kiện quyền hoặc lỗi dữ liệu, không phải
+   tín hiệu thị trường**. Phải gắn cờ vào `meta.warnings` và loại khỏi phần diễn giải động
+   lượng. Bằng chứng: 4 phiên vượt ±7% trong 500 phiên gần nhất, gồm 14/05/2025 (−7,80%, ngay
+   sau ngày chốt quyền 13/05) và 08/09/2025 (−10,00%, mức bất khả thi trong phiên bình thường).
+3. **Giá hiển thị là giá thô, chỉ báo tính trên chuỗi liên tục.** Người dùng cần thấy đúng giá
+   thị trường hôm nay; chỉ báo cần chuỗi không bị gãy. Hai nhu cầu khác nhau, không được lẫn.
 
 ## 6. Hợp đồng dữ liệu
 
@@ -167,6 +208,7 @@ vào JSON và **hạ độ tin cậy xuống `Thấp`**. Không âm thầm tin m
     "vnindex_vs_sma50": "above",
     "tpb_rel_strength_20d": -4.2
   },
+  "foreign": { "net_value_bn": -12.4, "net_volume": -850000, "streak_days": -3 },
   "position": { "avg_price": null, "volume": null, "unrealized_pl": null }
 }
 ```
@@ -289,10 +331,24 @@ sản ngân hàng chủ yếu là tài sản tài chính nên giá trị sổ s�
 | Sinh lời | NIM, **CASA**, CIR, thu nhập ngoài lãi |
 | Tăng trưởng và an toàn vốn | tăng trưởng tín dụng, room NHNN cấp, CAR, LDR |
 | Kỹ thuật | giá so với SMA20/50/200, RSI-14, MACD, thanh khoản so với TB20, vị trí trong biên 52 tuần |
+| Dòng tiền khối ngoại | mua/bán ròng của nhà đầu tư nước ngoài, room ngoại còn lại |
 | Bối cảnh thị trường | VN-Index, VN30, GTGD toàn sàn, sức mạnh tương đối của TPB so với VN-Index |
 
 Nợ nhóm 2 là chỉ báo sớm của nợ xấu quý sau. CASA là lợi thế riêng của TPB nhờ mảng số hoá.
 Room tín dụng là trần tăng trưởng do NHNN áp, không do ngân hàng tự quyết.
+
+Khối ngoại có sức nặng riêng ở thị trường Việt Nam vì tỷ trọng nhà đầu tư cá nhân rất cao —
+một chuỗi bán ròng kéo dài của khối ngoại thường đi trước áp lực giá. Dữ liệu lấy từ bảng giá
+CafeF.
+
+### 9.2 Cơ chế thị trường phải tôn trọng
+
+- **Biên độ ±7% (HOSE).** Chạm trần hoặc sàn là trạng thái đặc biệt, không phải một mức giá
+  bình thường: bên mua hoặc bên bán đã mất thanh khoản. Phải nêu rõ khi xảy ra.
+- **Thanh toán T+2.** Bán hôm nay thì T+2 mới có tiền. Mọi kế hoạch ở cột `Next Step plan`
+  phải tính đến độ trễ này, không giả định xoay vòng vốn trong ngày.
+- **Thanh khoản mỏng.** Khối lượng thấp làm chỉ báo kỹ thuật nhiễu nặng. KLGD dưới 50% trung
+  bình 20 phiên thì hạ độ tin của phần kỹ thuật.
 
 ### 9.1 Ba phép so, không có ngưỡng tuyệt đối
 
@@ -343,6 +399,7 @@ Bốn quy tắc ép cứng trong `SKILL.md`:
 | `test_sheet_row.py` | Dòng gửi lên sheet có đúng 8 trường B–I, đúng thứ tự |
 | `test_degradation.py` | Thiếu webhook thì in ra dòng và thoát mã 0, không crash |
 | `test_no_fabrication.py` | Nguồn trả rỗng thì trường tương ứng là `null`, không phải số bịa |
+| `test_corp_actions.py` | Chuỗi giá có một phiên biến động −10% bị gắn cờ vào `meta.warnings` và không lọt vào diễn giải động lượng |
 
 Không test nội dung phán đoán của Claude — cái đó không đơn định. Cột `Kiểm chứng` mới là cơ
 chế đánh giá phán đoán, và nó chạy theo thời gian thực chứ không phải trong CI.
@@ -364,6 +421,9 @@ chế đánh giá phán đoán, và nó chạy theo thời gian thực chứ kh�
 - [ ] `fetch_tpb.py` in ra JSON đúng hợp đồng ở mục 6, không có trường bịa
 - [ ] Toàn bộ giá là VND nguyên; test đơn vị xanh
 - [ ] Đối chiếu chéo hai nguồn hoạt động và hạ độ tin khi lệch
+- [ ] Đối chiếu chéo **chỉ áp cho phiên gần nhất**, không quét toàn chuỗi
+- [ ] Chỉ báo kỹ thuật tính từ một nguồn duy nhất, không trộn chuỗi
+- [ ] Biến động một phiên vượt ±7% bị gắn cờ và loại khỏi diễn giải động lượng
 - [ ] `Code.gs` ghi đúng cột B–I, idempotent, không đụng L/M/J
 - [ ] Thiếu webhook thì in dòng ra để dán tay, không crash
 - [ ] `SKILL.md` ép đủ bốn quy tắc ở mục 10

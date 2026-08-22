@@ -55,6 +55,22 @@ Không có vị thế thì bỏ hai tham số. Thêm `--no-sector` nếu chỉ c
 - hai nguồn giá lệch > 2% → hạ độ tin xuống `Thấp`
 - thanh khoản mỏng → hạ độ tin phần kỹ thuật
 
+### Bước 3b — Kiểm tra thị trường có giao dịch không
+
+Thị trường VN chỉ chạy **thứ Hai đến thứ Sáu**, và nghỉ các ngày lễ (Tết Nguyên đán, Giỗ Tổ
+10/3 âm lịch, 30/4, 1/5, 2/9).
+
+So `meta.session_date` trong JSON với `session_date` của dòng journal gần nhất trong
+`data/journal/TPB.jsonl`:
+
+- **Khác nhau** → có phiên mới, chạy tiếp bước 4.
+- **Trùng nhau** → thị trường **không giao dịch** hôm qua. Ghi vào sheet với cột `Close` = `—`,
+  các cột còn lại để trống, rồi dừng. **Không phân tích lại, không ghi lại số liệu cũ như thể
+  có gì mới.**
+
+Lưu ý: chạy sáng **thứ Hai** thì phiên gần nhất là **thứ Sáu** — đó là bình thường, không
+phải dữ liệu cũ.
+
 ### Bước 4 — Đọc tin tức và báo cáo tài chính
 
 WebSearch/WebFetch: tin TPB mới nhất, BCTC quý gần nhất. Tìm **NIM, CASA, NPL, tỷ lệ bao phủ
